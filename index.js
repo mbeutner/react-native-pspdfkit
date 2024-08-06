@@ -71,6 +71,8 @@ class PSPDFKitView extends React.Component {
           onDataReturned={this._onDataReturned}
           onCustomToolbarButtonTapped={this._onCustomToolbarButtonTapped}
           onCustomAnnotationContextualMenuItemTapped={this._onCustomAnnotationContextualMenuItemTapped}
+          onZoomLevelChanged={this._onZoomLevelChanged}
+          onPageTouched={this._onPageTouched}
         />
       );
     } else {
@@ -84,6 +86,18 @@ class PSPDFKitView extends React.Component {
   _onStateChanged = event => {
     if (this.props.onStateChanged) {
       this.props.onStateChanged(event.nativeEvent);
+    }
+  };
+
+  _onPageTouched = (event) => {
+    if (this.props.onPageTouched) {
+      this.props.onPageTouched(event.nativeEvent);
+    }
+  };
+
+  _onZoomLevelChanged = (event) => {
+    if (this.props.onZoomLevelChanged) {
+      this.props.onZoomLevelChanged(event.nativeEvent);
     }
   };
 
@@ -1096,6 +1110,37 @@ class PSPDFKitView extends React.Component {
       return UIManager[viewManagerName];
     }
   };
+
+  getSizeOfFirstPage = function () {
+    if (Platform.OS === "android") {
+      let requestId = this._nextRequestId++;
+      let requestMap = this._requestMap;
+
+      // We create a promise here that will be resolved once onDataReturned is called.
+      let promise = new Promise(function (resolve, reject) {
+        requestMap[requestId] = { resolve: resolve, reject: reject };
+      });
+
+      UIManager.dispatchViewManagerCommand(
+        findNodeHandle(this.refs.pdfView),
+        this._getViewManagerConfig("RCTPSPDFKitView").Commands
+          .getSizeOfFirstPage,
+        [requestId]
+      );
+
+      return promise;
+    } else if (Platform.OS === "ios") {
+      return NativeModules.PSPDFKitViewManager.getSizeOfFirstPage(
+        findNodeHandle(this.refs.pdfView)
+      );
+    }
+  };
+
+  // @mbeutner: there is a run condition for unmounting this view on android devices.
+  // when fixing it in the app we only fixed it in 1 of 2 screens and in order to prevent this mistake in the future we will do it here now.
+  componentWillUnmount() {
+    this.destroyView()
+  }
 }
 
 if (Platform.OS === 'ios' || Platform.OS === 'android') {
@@ -1363,6 +1408,26 @@ PSPDFKitView.propTypes = {
    *  }}
    */
   onCustomAnnotationContextualMenuItemTapped: PropTypes.func,
+  /**
+   * Callback that is called when the zoom level changes.
+   * @type {function}
+   * @memberof PSPDFKitView
+   * @returns `ZoomLevelEvent`, which is an object with this structure `{ zoomLevel: number }`
+   * @example
+   * onZoomLevelChanged={(event: ZoomLevelEvent) => {
+   *    if (event.zoomLevel !== currentZoomLevel) {
+   *
+   *    }
+   * }}
+   */
+  onZoomLevelChanged: PropTypes.func,
+  /**
+   * Callback that is called when the pdf is touched. Does not fire when an annotation is tapped.
+   * @type {function}
+   * @memberof PSPDFKitView
+   * @returns the coordinated as an object with the structure `{ x: number; y: number }`, where (0, 0) is the top left corner
+   */
+  onPageTouched: PropTypes.func,
   /**
    * The tag used to identify a single ```PdfFragment``` in the view hierarchy.
    * This needs to be unique in the view hierarchy.

@@ -46,6 +46,7 @@ import com.pspdfkit.annotations.Annotation;
 import com.pspdfkit.annotations.AnnotationFlags;
 import com.pspdfkit.annotations.AnnotationProvider;
 import com.pspdfkit.annotations.AnnotationType;
+import com.pspdfkit.annotations.appearance.AssetAppearanceStreamGenerator;
 import com.pspdfkit.annotations.configuration.AnnotationConfiguration;
 import com.pspdfkit.annotations.configuration.FreeTextAnnotationConfiguration;
 import com.pspdfkit.configuration.activity.PdfActivityConfiguration;
@@ -71,6 +72,7 @@ import com.pspdfkit.react.PDFDocumentModule;
 import com.pspdfkit.react.R;
 import com.pspdfkit.react.events.CustomAnnotationContextualMenuItemTappedEvent;
 import com.pspdfkit.react.events.PdfViewAnnotationChangedEvent;
+import com.pspdfkit.react.events.PdfViewTappedEvent;
 import com.pspdfkit.react.ConfigurationAdapter;
 import com.pspdfkit.react.events.PdfViewAnnotationTappedEvent;
 import com.pspdfkit.react.events.PdfViewDataReturnedEvent;
@@ -81,6 +83,7 @@ import com.pspdfkit.react.events.PdfViewDocumentSavedEvent;
 import com.pspdfkit.react.events.PdfViewNavigationButtonClickedEvent;
 import com.pspdfkit.react.events.CustomToolbarButtonTappedEvent;
 import com.pspdfkit.react.events.PdfViewStateChangedEvent;
+import com.pspdfkit.react.events.PdfViewZoomLevelChangedEvent;
 import com.pspdfkit.react.helper.ConversionHelpers;
 import com.pspdfkit.react.helper.DocumentJsonDataProvider;
 import com.pspdfkit.react.helper.MeasurementsHelper;
@@ -100,6 +103,7 @@ import com.pspdfkit.ui.search.PdfSearchViewInline;
 import com.pspdfkit.ui.special_mode.controller.AnnotationTool;
 import com.pspdfkit.ui.toolbar.ContextualToolbarMenuItem;
 import com.pspdfkit.ui.toolbar.grouping.MenuItemGroupingRule;
+import com.pspdfkit.utils.Size;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -112,6 +116,7 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -188,6 +193,10 @@ public class PdfView extends FrameLayout {
     @Nullable
     private Disposable updateAnnotationConfigurationDisposable;
 
+    /** Disposable keeping track of our subscription to update the annotation overlay configuration. */
+    @Nullable
+    private Disposable setupFragmentDisposable;
+
     /** The currently configured array of available font names for free text annotations. */
     @Nullable
     private ReadableArray availableFontNames;
@@ -195,6 +204,9 @@ public class PdfView extends FrameLayout {
     /** The currently configured default font name for free text annotations. */
     @Nullable
     private String selectedFontName;
+
+    /** For annotations with a custom appearance stream, store it. */
+    private final Map<String, AssetAppearanceStreamGenerator> customAppearanceStreamGenerators = new HashMap<>();
 
     @Nullable
     private Map<AnnotationType, AnnotationConfiguration> annotationsConfigurations;
@@ -514,6 +526,11 @@ public class PdfView extends FrameLayout {
     }
 
     private void setupFragment(boolean recreate) {
+        if (setupFragmentDisposable != null) {
+            setupFragmentDisposable.dispose();
+            setupFragmentDisposable = null;
+        }
+
         if (fragmentTag != null && configuration != null && (document != null || recreate == true)) {
             PdfUiFragment pdfFragment = (PdfUiFragment) fragmentManager.findFragmentByTag(fragmentTag);
             if (pdfFragment != null &&
@@ -570,6 +587,15 @@ public class PdfView extends FrameLayout {
             fragment = pdfFragment;
             pdfUiFragmentGetter.onNext(Collections.singletonList(pdfFragment));
         }
+
+        /*
+        in order to use the NOZOOM feature, we need these lines
+        however, we get many crashes during zooming and re-setting markers when we enter overlay mode for stamp annotations
+         */
+        // put stamp annotations in overlay mode to support NO_ZOOM
+//        setupFragmentDisposable = getCurrentPdfFragment().forEach(fragment -> {
+//            fragment.setOverlaidAnnotationTypes(EnumSet.of(AnnotationType.STAMP));
+//        });
     }
 
     private void prepareFragment(final PdfUiFragment pdfUiFragment, final boolean attachFragment) {
@@ -739,6 +765,12 @@ public class PdfView extends FrameLayout {
         }
     }
 
+    void updateZoomLevelEvent(float zoomLevel) {
+        eventDispatcher.dispatchEvent(new PdfViewZoomLevelChangedEvent(
+                getId(),
+                zoomLevel));
+    }
+
     public EventDispatcher getEventDispatcher() {
         return eventDispatcher;
     }
@@ -803,7 +835,18 @@ public class PdfView extends FrameLayout {
         return getCurrentPdfFragment().map(PdfFragment::getDocument).subscribeOn(Schedulers.io())
             .map(pdfDocument -> {
                 JSONObject json = new JSONObject(annotation.toHashMap());
-                return pdfDocument.getAnnotationProvider().createAnnotationFromInstantJson(json.toString());
+                Annotation annotationFromInstantJson = pdfDocument.getAnnotationProvider().createAnnotationFromInstantJson(json.toString());
+                // vectorStampAssets get their own appearance stream (i.e. look)
+                String vectorStampAssetFile = json.optString("vectorStampAsset", null);
+                if (vectorStampAssetFile != null) {
+                    AssetAppearanceStreamGenerator assetAppearanceStreamGenerator = customAppearanceStreamGenerators.get(vectorStampAssetFile);
+                    if (assetAppearanceStreamGenerator == null) {
+                        assetAppearanceStreamGenerator = new AssetAppearanceStreamGenerator(vectorStampAssetFile);
+                        customAppearanceStreamGenerators.put(vectorStampAssetFile, assetAppearanceStreamGenerator);
+                    }
+                    annotationFromInstantJson.setAppearanceStreamGenerator(assetAppearanceStreamGenerator);
+                }
+                return annotationFromInstantJson;
             })
             .map(Annotation::toInstantJson)
             .observeOn(AndroidSchedulers.mainThread())
@@ -1158,10 +1201,28 @@ public class PdfView extends FrameLayout {
             PdfViewDocumentLoadFailedEvent.EVENT_NAME, MapBuilder.of("registrationName", "onDocumentLoadFailed")
         );
        map.put(PdfViewNavigationButtonClickedEvent.EVENT_NAME, MapBuilder.of("registrationName", "onNavigationButtonClicked"));
+       map.put(PdfViewZoomLevelChangedEvent.EVENT_NAME, MapBuilder.of("registrationName", "onZoomLevelChanged"));
+       map.put(PdfViewTappedEvent.EVENT_NAME, MapBuilder.of("registrationName", "onPageTouched"));
+
        map.put(PdfViewDocumentLoadedEvent.EVENT_NAME, MapBuilder.of("registrationName", "onDocumentLoaded"));
        map.put(CustomToolbarButtonTappedEvent.EVENT_NAME, MapBuilder.of("registrationName", "onCustomToolbarButtonTapped"));
        map.put(CustomAnnotationContextualMenuItemTappedEvent.EVENT_NAME, MapBuilder.of("registrationName", "onCustomAnnotationContextualMenuItemTapped"));
        return map;
+    }
+
+    public Maybe<JSONObject> getSizeOfFirstPage() {
+        return getCurrentPdfFragment().map(PdfFragment::getDocument).map(document -> {
+            Size sizeOfFirstPage = document.getPageSize(0);
+            JSONObject result = new JSONObject();
+            try {
+                result.put("height", sizeOfFirstPage.height);
+                result.put("width", sizeOfFirstPage.width);
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+
+            return result;
+        }).elementAt(0);
     }
 
     private void applyMeasurementValueConfigurations(PdfFragment fragment, ReadableArray measurementConfigs) {

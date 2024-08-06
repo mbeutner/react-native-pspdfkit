@@ -66,6 +66,7 @@ public class ReactPdfViewManager extends ViewGroupManager<PdfView> {
     public static final int COMMAND_GET_ALL_ANNOTATIONS = 11;
     public static final int COMMAND_REMOVE_ANNOTATION = 10;
     public static final int COMMAND_REMOVE_FRAGMENT = 12;
+    public static final int COMMAND_GET_SIZE_OF_FIRST_PAGE = 99000;
     public static final int COMMAND_SET_TOOLBAR_MENU_ITEMS = 13;
     public static final int COMMAND_REMOVE_ANNOTATIONS = 14;
     public static final int COMMAND_GET_CONFIGURATION = 18;
@@ -129,6 +130,7 @@ public class ReactPdfViewManager extends ViewGroupManager<PdfView> {
         commandMap.put("removeAnnotations", COMMAND_REMOVE_ANNOTATIONS);
         commandMap.put("getAllAnnotations", COMMAND_GET_ALL_ANNOTATIONS);
         commandMap.put("removeFragment", COMMAND_REMOVE_FRAGMENT);
+        commandMap.put("getSizeOfFirstPage", COMMAND_GET_SIZE_OF_FIRST_PAGE);
         commandMap.put("setToolbarMenuItems", COMMAND_SET_TOOLBAR_MENU_ITEMS);
         commandMap.put("setMeasurementValueConfigurations", COMMAND_SET_MEASUREMENT_VALUE_CONFIGURATIONS);
         commandMap.put("getMeasurementValueConfigurations", COMMAND_GET_MEASUREMENT_VALUE_CONFIGURATIONS);
@@ -422,6 +424,23 @@ public class ReactPdfViewManager extends ViewGroupManager<PdfView> {
                 // to stop `react-native-screens` from crashing the App when the back button is pressed.
                 root.removeFragment(true);
                 break;
+            case COMMAND_GET_SIZE_OF_FIRST_PAGE: {
+                final int requestId = args.getInt(0);
+
+                Disposable annotationDisposable = root.getSizeOfFirstPage()
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(sizeOfFirstPage ->  {
+                        root.getEventDispatcher().dispatchEvent(new PdfViewDataReturnedEvent(root.getId(), requestId, sizeOfFirstPage));
+                    }, throwable -> {
+                        root.getEventDispatcher().dispatchEvent(new PdfViewDataReturnedEvent(root.getId(), requestId, throwable));
+                    },() -> {
+                        // Called when no form field was found.
+                        root.getEventDispatcher().dispatchEvent(new PdfViewDataReturnedEvent(root.getId(), requestId, false));
+                    });
+                annotationDisposables.add(annotationDisposable);
+                break;
+            }
             case COMMAND_SET_TOOLBAR_MENU_ITEMS:
                 if (args != null && args.size() == 1) {
                     setToolbarMenuItems(root,args.getArray(0));

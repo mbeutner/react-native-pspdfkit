@@ -21,6 +21,8 @@
 
 #define VALIDATE_DOCUMENT(document, ...) { if (!document.isValid) { NSLog(@"Document is invalid."); if (self.onDocumentLoadFailed) { self.onDocumentLoadFailed(@{@"error": @"Document is invalid."}); } return __VA_ARGS__; }}
 
+/// https://pspdfkit.com/guides/ios/current/migration-guides/pspdfkit-9-5-migration-guide/
+
 @interface RCTPSPDFKitViewController : PSPDFViewController
 @end
 
@@ -222,6 +224,15 @@
     } else {
         return suggestedMenu;
     }
+}
+
+- (void)documentViewController:(PSPDFDocumentViewController *)documentViewController didUpdateZoomScale:(CGFloat)zoomScale forSpreadAtIndex:(NSInteger)spreadIndex {
+  NSLog(@"current zoom scale: %f", zoomScale);
+
+  if (self.onZoomLevelChanged) {
+    NSNumber *zoomLevel = [NSNumber numberWithFloat:zoomScale];
+    self.onZoomLevelChanged(@{@"zoomLevel": zoomLevel});
+  }
 }
 
 // MARK: - PSPDFFlexibleToolbarContainerDelegate
@@ -513,6 +524,46 @@
   }
 }
 
+#pragma mark - Gesture Recognizers
+
+- (void)pageTapped:(UITapGestureRecognizer *)recognizer {
+  PSPDFDocument *document = self.pdfController.document;
+  VALIDATE_DOCUMENT(document)
+  PSPDFPageView *pageView = [self.pdfController pageViewForPageAtIndex:self.pdfController.pageIndex];
+  if (!pageView) {
+    return;
+  }
+
+  CGPoint touchPoint = [recognizer locationInView:pageView];
+
+  // The transform from UI coord to PDF coord somehow has y inverted so that
+  // when you click on top of the PDF the coord you get is bottom PDF coord.
+  // For now UI coord manipulation seems more legit for now.
+  CGFloat distToTop = touchPoint.y + pageView.frame.origin.y;
+  CGFloat bottomY = pageView.frame.origin.y + pageView.frame.size.height;
+  touchPoint.y = bottomY - distToTop;
+
+  if (!CGRectContainsPoint(pageView.frame, touchPoint)) {
+    NSLog(@"Tapped outside of the page view.");
+    return;
+  }
+
+  CGRect annotationViewRect = CGRectMake(touchPoint.x, touchPoint.y, 0.0, 0.0);
+  CGRect annotationPDFRect = [pageView convertRect:annotationViewRect toCoordinateSpace:pageView.pdfCoordinateSpace];
+  CGPoint pdfClick = annotationPDFRect.origin;
+
+  if (self.onPageTouched) {
+    NSLog(@"page touched at %@", NSStringFromCGPoint(pdfClick));
+
+    self.onPageTouched(@{
+      @"x": @(pdfClick.x),
+      @"y": @(pdfClick.y)
+    });
+  } else {
+    NSLog(@"No onPageTouched bound.");
+  }
+}
+
 - (void)spreadIndexDidChange:(NSNotification *)notification {
     PSPDFDocumentViewController *documentViewController = self.pdfController.documentViewController;
     if (notification.object != documentViewController) { return; }
@@ -521,6 +572,7 @@
     [self onStateChangedForPDFViewController:self.pdfController pageView:pageView pageAtIndex:pageIndex];
 }
 
+#pragma mark - Customize the Toolbar
 // MARK: - Customize the Toolbar
 
 - (void)setLeftBarButtonItems:(nullable NSArray *)items forViewMode:(nullable NSString *) viewMode animated:(BOOL)animated {

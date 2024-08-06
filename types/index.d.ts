@@ -738,6 +738,19 @@ export type GeneratePDFResult = {
      */
     fileURL: string;
 };
+export type ZoomLevelEvent = {
+    zoomLevel: number
+};
+export type PageTouchedEvent = {
+    x: number
+    y: number
+};
+export type GetAnnotationsResponse = {
+    annotations: Annotation[]
+};
+export type Annotation = {
+    bbox: [number, number, number, number]
+};
 /**
  * PSPDFKitView is a React Native component used to view PDF documents on iOS and Android.
  * @augments {React.Component<Props, *>}
@@ -862,9 +875,9 @@ declare class PSPDFKitView extends React.Component<Props, any, any> {
      * const result = await this.pdfRef.current.getAnnotations(3, 'pspdfkit/ink');
      * @see {@link https://pspdfkit.com/guides/web/json/schema/annotations/} for supported types.
      *
-     * @returns { Promise } A promise containing an object with an array of InstantJSON objects.
+     * @returns { Promise<GetAnnotationsResponse> } A promise containing an object with an array of InstantJSON objects.
      */
-    getAnnotations: (pageIndex: number, type?: string) => Promise<any>;
+    getAnnotations: (pageIndex: number, type?: string) => Promise<GetAnnotationsResponse>;
     /**
      * Adds a new annotation to the current document.
      *
@@ -889,7 +902,7 @@ declare class PSPDFKitView extends React.Component<Props, any, any> {
      *
      * @returns { Promise } A promise resolving to ```true``` if the annotation was removed successfully, and ```false``` if the annotation couldn’t be found or an error occurred.
      */
-    removeAnnotation: (annotation: object) => Promise<any>;
+    removeAnnotation: (annotation: Annotation) => Promise<boolean>;
     /**
      * Removes the supplied document InstantJSON from the current document.
      *
@@ -1203,6 +1216,44 @@ declare class PSPDFKitView extends React.Component<Props, any, any> {
      */
     destroyView: () => void;
     _getViewManagerConfig: (viewManagerName: any) => any;
+
+    /**
+     * Custom function implemented by n.core
+     *
+     * @returns size of first page or `null` if not loaded or empty.
+     * @method getSizeOfFirstPage
+     * @memberof PSPDFKitView
+     */
+    getSizeOfFirstPage(): Promise<PDFTemplatePageSize | null>
+
+    /**
+     * @typedef ZoomLevelEvent
+     * @property { number } zoomLevel
+    */
+    /**
+     *
+     * Callback that is called when the zoom level changes.
+     * @type {function}
+     * @memberof PSPDFKitView
+     * @param ZoomLevelEvent
+     * @returns void
+     * @example
+     * onZoomLevelChanged={(event: ZoomLevelEvent) => {
+     *    if (event.zoomLevel !== currentZoomLevel) {
+     *      ...logic here
+     *    }
+     * }}
+     */
+    onZoomLevelChanged(event: ZoomLevelEvent): void
+
+    /**
+     * Callback that is called when the pdf is touched. Does not fire when an annotation is tapped.
+     * @type {function}
+     * @memberof PSPDFKitView
+     * @param PageTouchedEvent
+     * @returns void
+     */
+    onPageTouched: (event: PageTouchedEvent) => void
 }
 declare namespace PSPDFKitView {
     namespace propTypes {
@@ -1240,6 +1291,10 @@ declare namespace PSPDFKitView {
         let style: any;
         let annotationPresets: object;
         let hideDefaultToolbar: boolean;
+        let getSizeOfFirstPage: Function;
+        let onZoomLevelChanged: Function;
+        let onPageTouched: Function;
+        let testID: string
     }
 }
 import * as React from 'react';
