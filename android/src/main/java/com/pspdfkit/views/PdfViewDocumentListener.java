@@ -28,10 +28,7 @@ import com.pspdfkit.forms.FormElement;
 import com.pspdfkit.forms.FormField;
 import com.pspdfkit.forms.FormListeners;
 import com.pspdfkit.listeners.DocumentListener;
-import com.pspdfkit.react.events.PdfViewAnnotationChangedEvent;
-import com.pspdfkit.react.events.PdfViewAnnotationTappedEvent;
-import com.pspdfkit.react.events.PdfViewDocumentSaveFailedEvent;
-import com.pspdfkit.react.events.PdfViewDocumentSavedEvent;
+import com.pspdfkit.react.events.*;
 import com.pspdfkit.ui.special_mode.controller.AnnotationSelectionController;
 import com.pspdfkit.ui.special_mode.manager.AnnotationManager;
 
@@ -95,7 +92,10 @@ class PdfViewDocumentListener implements DocumentListener, AnnotationManager.OnA
     public boolean onPageClick(@NonNull PdfDocument pdfDocument, int pageIndex, @Nullable MotionEvent motionEvent, @Nullable PointF pointF, @Nullable Annotation annotation) {
         if (annotation != null) {
             eventDispatcher.dispatchEvent(new PdfViewAnnotationTappedEvent(parent.getId(), annotation));
+        } else {
+            eventDispatcher.dispatchEvent(new PdfViewTappedEvent(parent.getId(), pointF.x, (pdfDocument.getPageSize(pageIndex).height-pointF.y)));
         }
+
         return false;
     }
 
@@ -111,7 +111,7 @@ class PdfViewDocumentListener implements DocumentListener, AnnotationManager.OnA
 
     @Override
     public void onDocumentZoomed(@NonNull PdfDocument pdfDocument, int i, float v) {
-
+        parent.updateZoomLevelEvent(v);
     }
 
     @Override

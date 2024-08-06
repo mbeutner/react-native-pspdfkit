@@ -21,6 +21,8 @@
 #endif
 
 #import <React/RCTUIManager.h>
+#import "CustomNoteAnnotationView.h"
+#import "CustomNoteAnnotation.h"
 
 @import PSPDFKit;
 @import PSPDFKitUI;
@@ -47,9 +49,18 @@ RCT_CUSTOM_VIEW_PROPERTY(document, PSPDFDocument, RCTPSPDFKitView) {
   if (json) {
     view.pdfController.document = [RCTConvert PSPDFDocument:json];
     view.pdfController.document.delegate = (id<PSPDFDocumentDelegate>)view;
+    view.pdfController.documentViewController.delegate = (id<PSPDFDocumentViewControllerDelegate>)view;
+
+    view.tapGesture = [[UITapGestureRecognizer alloc] initWithTarget:view action:@selector(pageTapped:)];
+    [view.pdfController.interactions.toggleUserInterface allowSimultaneousRecognitionWithGestureRecognizer:view.tapGesture];
+    [view.tapGesture pspdf_requireGestureRecognizersInComponentToFail:view.pdfController.interactions.smartZoom];
+    [view.pdfController.documentViewController.view addGestureRecognizer:view.tapGesture];
+    view.tapGesture.delegate = (id<UIGestureRecognizerDelegate>)view;
 
     // The following properties need to be set after the document is set.
     // We set them again here when we're certain the document exists.
+
+    // The author name may be set before the document exists. We set it again here when the document exists.
     if (view.annotationAuthorName) {
       view.pdfController.document.defaultAnnotationUsername = view.annotationAuthorName;
     }
@@ -75,8 +86,11 @@ RCT_CUSTOM_VIEW_PROPERTY(pageIndex, PSPDFPageIndex, RCTPSPDFKitView) {
 
 RCT_CUSTOM_VIEW_PROPERTY(configuration, PSPDFConfiguration, RCTPSPDFKitView) {
     if (json) {
+    [view.pdfController.document overrideClass:PSPDFNoteAnnotation.class withClass:CustomNoteAnnotation.class];
+
         [view.pdfController updateConfigurationWithBuilder:^(PSPDFConfigurationBuilder *builder) {
             [builder overrideClass:PSPDFFontPickerViewController.class withClass:CustomFontPickerViewController.class];
+            [builder overrideClass:PSPDFNoteAnnotationView.class withClass:CustomNoteAnnotationView.class];
             [builder setupFromJSON:json];
             _configuration = json;
         }];
@@ -185,6 +199,10 @@ RCT_EXPORT_VIEW_PROPERTY(onAnnotationsChanged, RCTBubblingEventBlock)
 
 RCT_EXPORT_VIEW_PROPERTY(onStateChanged, RCTBubblingEventBlock)
 
+RCT_EXPORT_VIEW_PROPERTY(onZoomLevelChanged, RCTBubblingEventBlock)
+
+RCT_EXPORT_VIEW_PROPERTY(onPageTouched, RCTBubblingEventBlock)
+
 RCT_EXPORT_VIEW_PROPERTY(onDocumentLoaded, RCTBubblingEventBlock)
 
 RCT_CUSTOM_VIEW_PROPERTY(availableFontNames, NSArray, RCTPSPDFKitView) {
@@ -268,6 +286,35 @@ RCT_EXPORT_METHOD(addAnnotation:(id)jsonAnnotation reactTag:(nonnull NSNumber *)
     } else {
       reject(@"error", @"Failed to add annotation.", error);
     }
+  });
+}
+
+RCT_EXPORT_METHOD(getSizeOfFirstPage:(nonnull NSNumber *)reactTag resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    RCTPSPDFKitView *component = (RCTPSPDFKitView *)[self.bridge.uiManager viewForReactTag:reactTag];
+
+    NSArray<PSPDFPageView *> *pageViews = component.pdfController.visiblePageViews;
+    unsigned long pages = [pageViews count];
+
+    if (pages == 0) {
+      resolve((id)kCFNull);
+      return;
+    }
+
+    PSPDFPageView *pageView = pageViews[0];
+    PSPDFPageInfo *pageInfo = pageView.pageInfo;
+
+    if (!pageInfo) {
+      resolve((id)kCFNull);
+      return;
+    }
+
+    CGSize size = pageInfo.size;
+
+    resolve(@{
+      @"width": @(size.width),
+      @"height": @(size.height)
+    });
   });
 }
 
